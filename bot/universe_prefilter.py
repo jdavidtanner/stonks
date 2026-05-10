@@ -39,7 +39,7 @@ class FmpScreenerPrefilter(UniversePrefilter):
                 market_cap_more_than=self.min_market_cap,
                 limit=self.limit,
             )
-        except (NotImplementedError, Exception):
+        except (NotImplementedError, RuntimeError, OSError):
             self.log.warn("Universe prefilter: unavailable; using input symbols.")
             return None
         if not symbols:

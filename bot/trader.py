@@ -156,7 +156,7 @@ def scan_market(
         supply = evaluate_supply_demand(result.symbol, end_date, cached_fmp, log)
         if supply is None:
             continue
-        n_result = evaluate_n_module(result.symbol, cached_fmp, llm, log)
+        n_result = evaluate_n_module(result.symbol, end_date, cached_fmp, llm, log)
         if not n_result.has_new:
             log.info(f"{result.symbol} rejected: N_MODULE_NO_NEW")
             continue
@@ -244,45 +244,6 @@ def check_stops(
                     reason="stop-loss",
                 )
             )
-    return orders
-
-
-def check_profit_takes(
-    positions: Iterable[Position],
-    latest_prices: Dict[str, float],
-    as_of: date,
-    log: BotLog,
-) -> List[Order]:
-    orders: List[Order] = []
-    for position in positions:
-        last_price = latest_prices.get(position.symbol)
-        if last_price is None:
-            log.warn(f"{position.symbol} profit check skipped: missing price.")
-            continue
-        gain = (last_price - position.entry_price) / position.entry_price
-        holding_days = (as_of - position.entry_date).days
-        if gain >= 0.20 and holding_days > 21:
-            orders.append(
-                Order(
-                    symbol=position.symbol,
-                    qty=position.qty,
-                    side="sell",
-                    reason="profit-take",
-                )
-            )
-    return orders
-
-
-def check_sells(
-    positions: Iterable[Position],
-    latest_prices: Dict[str, float],
-    as_of: date,
-    config: BotConfig,
-    log: BotLog,
-) -> List[Order]:
-    orders = []
-    orders.extend(check_stops(positions, latest_prices, config, log))
-    orders.extend(check_profit_takes(positions, latest_prices, as_of, log))
     return orders
 
 

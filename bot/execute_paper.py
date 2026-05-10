@@ -141,7 +141,7 @@ def execute_paper(
             }
 
         bot = Bot(alpaca=alpaca, fmp=fmp, llm=llm, config=config)
-        orders, run_log = bot.run_daily(symbols, as_of)
+        orders, run_log = bot.run_daily_from_scan(scan_result, symbols, as_of)
         log.entries.extend(run_log.entries)
     except Exception as exc:
         status = "error"

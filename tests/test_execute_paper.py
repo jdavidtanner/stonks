@@ -11,6 +11,7 @@ from bot.models import (
     FundamentalsAnnual,
     FundamentalsQuarter,
     OwnershipSnapshot,
+    PressRelease,
     SharesOutstandingSnapshot,
     SymbolMetadata,
 )
@@ -58,7 +59,7 @@ class FakeFmpPaper:
         annual: Dict[str, List[FundamentalsAnnual]],
         shares: Dict[str, List[SharesOutstandingSnapshot]],
         owners: Dict[str, List[OwnershipSnapshot]],
-        releases: Dict[str, List[str]],
+        releases: Dict[str, List[PressRelease]],
     ) -> None:
         self.quarterly = quarterly
         self.annual = annual
@@ -78,7 +79,7 @@ class FakeFmpPaper:
     def institutional_ownership(self, symbol: str) -> List[OwnershipSnapshot]:
         return self.owners.get(symbol, [])
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
+    def press_releases(self, symbol: str, limit: int) -> List[PressRelease]:
         return self.releases.get(symbol, [])[:limit]
 
     def stock_screener(
@@ -178,7 +179,7 @@ def _build_fmp(symbol: str) -> FakeFmpPaper:
                 OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=200)
             ]
         },
-        releases={symbol: ["New product launched."]},
+        releases={symbol: [PressRelease(date_published=date(2024, 1, 1), text="New product launched.")]},
     )
 
 

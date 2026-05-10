@@ -56,7 +56,7 @@ class AlpacaLive(AlpacaClient):
                     self.log.error(message)
                     raise RuntimeError(message)
                 self.log.warn(message)
-                raise RuntimeError("rate limit")
+                return {}
             if response.ok:
                 return response.json()
             message = f"Alpaca API error: {response.status_code} {response.text}"

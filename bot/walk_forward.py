@@ -46,7 +46,8 @@ class WalkForwardRunner:
     def _iterate_days(self, start_date: date, end_date: date) -> Iterable[date]:
         current = start_date
         while current <= end_date:
-            yield current
+            if current.weekday() < 5:  # skip Saturday=5, Sunday=6
+                yield current
             current += timedelta(days=1)
 
     def _build_pending_orders(
@@ -136,7 +137,10 @@ class WalkForwardRunner:
                 for pending in pending_orders:
                     order = pending.order
                     if order.side == "buy":
-                        fill_price = pending.signal_price
+                        buy_bars = alpaca.daily_bars(order.symbol, end_date=day, limit=1)
+                        if not buy_bars:
+                            continue
+                        fill_price = buy_bars[-1].open
                         cost = fill_price * order.qty
                         if cost > cash:
                             continue
@@ -233,8 +237,9 @@ class WalkForwardRunner:
                 writer.writeheader()
                 for day, equity in result.equity_curve:
                     writer.writerow({"date": day.isoformat(), "equity": f"{equity:.2f}"})
-        except Exception:
-            pass
+        except Exception as exc:
+            import sys
+            print(f"Warning: failed to write {equity_path}: {exc}", file=sys.stderr)
         try:
             with trades_path.open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.DictWriter(
@@ -252,5 +257,6 @@ class WalkForwardRunner:
                             "reason": fill.reason,
                         }
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            import sys
+            print(f"Warning: failed to write {trades_path}: {exc}", file=sys.stderr)

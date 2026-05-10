@@ -9,6 +9,7 @@ from bot.models import (
     FundamentalsAnnual,
     FundamentalsQuarter,
     OwnershipSnapshot,
+    PressRelease,
     SharesOutstandingSnapshot,
     SymbolMetadata,
 )
@@ -41,7 +42,7 @@ class FmpClient(Protocol):
     def institutional_ownership(self, symbol: str) -> List[OwnershipSnapshot]:
         raise NotImplementedError
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
+    def press_releases(self, symbol: str, limit: int) -> List[PressRelease]:
         raise NotImplementedError
 
     def stock_screener(

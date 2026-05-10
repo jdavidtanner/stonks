@@ -31,7 +31,7 @@ def _is_power_play(bars: List[Bar], entry_price: float, entry_date: date) -> boo
         return False
     target_price = entry_price * (1 + POWER_PLAY_GAIN)
     end_idx = min(entry_idx + POWER_PLAY_DAYS, len(bars) - 1)
-    for idx in range(entry_idx, end_idx + 1):
+    for idx in range(entry_idx, end_idx):
         if bars[idx].close >= target_price:
             return True
     return False

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 
 from bot.config import BotConfig
 from bot.data_providers import AlpacaClient, FmpClient, LlmClient
-from bot.models import Bar, FundamentalsAnnual, FundamentalsQuarter, OwnershipSnapshot, SharesOutstandingSnapshot, SymbolMetadata
+from bot.models import Bar, FundamentalsAnnual, FundamentalsQuarter, OwnershipSnapshot, PressRelease, SharesOutstandingSnapshot, SymbolMetadata
 from bot.walk_forward import WalkForwardRunner
 
 
@@ -36,7 +36,7 @@ class FakeFmpWalk(FmpClient):
         annual: Dict[str, List[FundamentalsAnnual]],
         shares: Dict[str, List[SharesOutstandingSnapshot]],
         owners: Dict[str, List[OwnershipSnapshot]],
-        releases: Dict[str, List[str]],
+        releases: Dict[str, List[PressRelease]],
     ):
         self.quarterly = quarterly
         self.annual = annual
@@ -56,7 +56,7 @@ class FakeFmpWalk(FmpClient):
     def institutional_ownership(self, symbol: str) -> List[OwnershipSnapshot]:
         return self.owners.get(symbol, [])
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
+    def press_releases(self, symbol: str, limit: int) -> List[PressRelease]:
         return self.releases.get(symbol, [])[:limit]
 
     def stock_screener(
@@ -155,17 +155,26 @@ def test_walk_forward_market_off_no_buys() -> None:
     assert result.num_buys == 0
 
 
+def _next_trading_day(d: date) -> date:
+    d = d + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
 def test_walk_forward_stop_loss_triggers() -> None:
     start = date(2023, 1, 1)
     spy = _market_bars(start, 260)
     qqq = _market_bars(start, 260)
     aaa_series = _flat_base_series(start, 220, 30, 105.0, 95.0, 110.0)
-    drop_day = aaa_series[-1].day + timedelta(days=1)
+    # use next trading day so the crash bar is not skipped by the weekend filter
+    drop_day = _next_trading_day(aaa_series[-1].day)
+    # open near breakout price so the buy fill at open is ~110, then close crashes below the 8% stop
     aaa_series.append(
         Bar(
             day=drop_day,
-            open=90.0,
-            high=92.0,
+            open=110.0,
+            high=111.0,
             low=88.0,
             close=90.0,
             volume=1_000_000,
@@ -204,7 +213,7 @@ def test_walk_forward_stop_loss_triggers() -> None:
                 OwnershipSnapshot(report_date=date(2021, 12, 31), accepted_date=date(2022, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(date_published=date(2023, 1, 1), text="New product launched.")]},
     )
     runner = WalkForwardRunner()
     result = runner.run(
@@ -224,7 +233,7 @@ def test_walk_forward_no_lookahead_fill_next_day() -> None:
     spy = _market_bars(start, 260)
     qqq = _market_bars(start, 260)
     aaa_series = _flat_base_series(start, 220, 30, 105.0, 95.0, 110.0)
-    next_day = aaa_series[-1].day + timedelta(days=1)
+    next_day = _next_trading_day(aaa_series[-1].day)
     aaa_series.append(
         Bar(
             day=next_day,
@@ -268,7 +277,7 @@ def test_walk_forward_no_lookahead_fill_next_day() -> None:
                 OwnershipSnapshot(report_date=date(2021, 12, 31), accepted_date=date(2022, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(date_published=date(2023, 1, 1), text="New product launched.")]},
     )
     runner = WalkForwardRunner()
     result = runner.run(

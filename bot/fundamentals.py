@@ -45,7 +45,7 @@ def _latest_quarters(
     quarters: List[FundamentalsQuarter], as_of: date, count: int
 ) -> List[FundamentalsQuarter]:
     eligible = [q for q in quarters if q.accepted_date <= as_of]
-    eligible.sort(key=lambda q: q.accepted_date)
+    eligible.sort(key=lambda q: q.report_date)
     return eligible[-count:] if len(eligible) >= count else []
 
 
@@ -125,11 +125,15 @@ def evaluate_fundamentals(
     if len(annual_series) < 3:
         log.info(f"{symbol} rejected: insufficient annual EPS history.")
         return None
-    start = annual_series[0].eps
-    end = annual_series[-1].eps
-    if start <= 0 or end <= 0 or end <= start:
+    annual_eps = [a.eps for a in annual_series]
+    if any(e <= 0 for e in annual_eps):
         log.info(f"{symbol} rejected: annual EPS growth not positive over 3+ years.")
         return None
+    if not all(annual_eps[i] < annual_eps[i + 1] for i in range(len(annual_eps) - 1)):
+        log.info(f"{symbol} rejected: annual EPS growth not positive over 3+ years.")
+        return None
+    start = annual_eps[0]
+    end = annual_eps[-1]
     years = annual_series[-1].report_date.year - annual_series[0].report_date.year
     annual_cagr = _cagr(start, end, years) if years > 0 else None
     if annual_cagr is not None:
@@ -138,7 +142,9 @@ def evaluate_fundamentals(
     if any(revenue <= 0 for revenue in annual_revenues):
         log.info(f"{symbol} rejected: annual revenue trend not positive (non-positive).")
         return None
-    annual_revenue_trend_ok = annual_revenues[-1] > annual_revenues[0]
+    annual_revenue_trend_ok = all(
+        annual_revenues[i] < annual_revenues[i + 1] for i in range(len(annual_revenues) - 1)
+    )
     if not annual_revenue_trend_ok:
         log.info(f"{symbol} rejected: annual revenue trend not positive.")
         return None

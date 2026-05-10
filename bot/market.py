@@ -29,7 +29,7 @@ def _distribution_days(bars: List[Bar], window: int) -> int:
     recent = bars[-window:]
     count = 0
     for prev, curr in zip(recent, recent[1:]):
-        if curr.close <= prev.close and curr.volume > prev.volume:
+        if curr.close < prev.close and curr.volume > prev.volume:
             count += 1
     return count
 

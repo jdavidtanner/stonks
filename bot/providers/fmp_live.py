@@ -13,6 +13,7 @@ from bot.models import (
     FundamentalsAnnual,
     FundamentalsQuarter,
     OwnershipSnapshot,
+    PressRelease,
     SharesOutstandingSnapshot,
 )
 
@@ -178,18 +179,26 @@ class FmpLive(FmpClient):
 
         return self._cache.get_or_set(("owners", symbol), fetch)
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
-        def fetch() -> List[str]:
+    def press_releases(self, symbol: str, limit: int) -> List[PressRelease]:
+        def fetch() -> List[PressRelease]:
             rows = self._request(f"press-releases/{symbol}", {"limit": str(limit)})
-            results: List[str] = []
+            results: List[PressRelease] = []
             for row in rows:
+                raw_date = row.get("date")
                 text = row.get("text") or row.get("content")
                 title = row.get("title")
                 if not text and not title:
                     continue
                 combined = f"{title}\n{text}" if text and title else text or title
-                if combined:
-                    results.append(combined)
+                if not combined:
+                    continue
+                try:
+                    pub_date = date.fromisoformat(str(raw_date)[:10]) if raw_date else None
+                except (ValueError, TypeError):
+                    pub_date = None
+                if pub_date is None:
+                    continue
+                results.append(PressRelease(date_published=pub_date, text=combined))
             return results
 
         return self._cache.get_or_set(("press", symbol, limit), fetch)
@@ -204,29 +213,15 @@ class FmpLive(FmpClient):
     ) -> List[str]:
         if not self.api_key:
             raise RuntimeError("FMP API key missing")
-        params = {
-            "priceMoreThan": str(price_more_than),
-            "volumeMoreThan": str(volume_more_than),
-            "marketCapMoreThan": str(market_cap_more_than),
-            "limit": str(limit),
-            "apikey": self.api_key,
-        }
-        url = "https://financialmodelingprep.com/api/v3/stock-screener"
-        try:
-            response = requests.get(url, params=params, timeout=self.timeout_s)
-        except requests.RequestException as exc:
-            raise RuntimeError(f"FMP screener request failed: {exc}") from exc
-        if response.status_code == 429:
-            raise RuntimeError("FMP screener rate limit hit")
-        if not response.ok:
-            raise RuntimeError(f"FMP screener error: {response.status_code} {response.text}")
-        data = response.json()
-        if not isinstance(data, list):
-            raise RuntimeError("FMP screener returned invalid data")
-        rows = data
-        symbols: List[str] = []
-        for row in rows:
-            symbol = row.get("symbol")
-            if isinstance(symbol, str):
-                symbols.append(symbol)
-        return symbols
+        rows = self._request(
+            "stock-screener",
+            {
+                "priceMoreThan": str(price_more_than),
+                "volumeMoreThan": str(volume_more_than),
+                "marketCapMoreThan": str(market_cap_more_than),
+                "limit": str(limit),
+            },
+        )
+        if not rows and self.fail_closed:
+            raise RuntimeError("FMP screener returned no data")
+        return [row["symbol"] for row in rows if isinstance(row.get("symbol"), str)]
