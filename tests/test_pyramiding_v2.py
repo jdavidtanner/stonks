@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from bot.config import BotConfig
 from bot.data_providers import AlpacaClient, FmpClient, LlmClient
 from bot.logger import BotLog
-from bot.models import Bar, MarketState, Position, SymbolMetadata
+from bot.models import Bar, MarketState, Position, PressRelease, SymbolMetadata
 from bot.runner import Bot
 from bot.trader import ScanResult, build_add_on_orders
 
@@ -68,7 +68,7 @@ class FakeFmp(FmpClient):
     def institutional_ownership(self, symbol: str):
         return []
 
-    def press_releases(self, symbol: str, limit: int):
+    def press_releases(self, symbol: str, limit: int, as_of: date):
         return []
 
     def stock_screener(

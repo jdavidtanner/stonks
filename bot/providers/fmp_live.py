@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -13,6 +13,7 @@ from bot.models import (
     FundamentalsAnnual,
     FundamentalsQuarter,
     OwnershipSnapshot,
+    PressRelease,
     SharesOutstandingSnapshot,
 )
 
@@ -178,21 +179,25 @@ class FmpLive(FmpClient):
 
         return self._cache.get_or_set(("owners", symbol), fetch)
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
-        def fetch() -> List[str]:
+    def press_releases(self, symbol: str, limit: int, as_of: date) -> List[PressRelease]:
+        def fetch() -> List[PressRelease]:
             rows = self._request(f"press-releases/{symbol}", {"limit": str(limit)})
-            results: List[str] = []
+            results: List[PressRelease] = []
             for row in rows:
                 text = row.get("text") or row.get("content")
                 title = row.get("title")
                 if not text and not title:
                     continue
                 combined = f"{title}\n{text}" if text and title else text or title
-                if combined:
-                    results.append(combined)
+                if not combined:
+                    continue
+                published = _parse_release_date(row.get("date"))
+                if published is not None and published > as_of:
+                    continue
+                results.append(PressRelease(published_date=published, text=combined))
             return results
 
-        return self._cache.get_or_set(("press", symbol, limit), fetch)
+        return self._cache.get_or_set(("press", symbol, limit, as_of), fetch)
 
     def stock_screener(
         self,
@@ -230,3 +235,15 @@ class FmpLive(FmpClient):
             if isinstance(symbol, str):
                 symbols.append(symbol)
         return symbols
+
+
+def _parse_release_date(value: Any) -> Optional[date]:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None

@@ -10,6 +10,7 @@ from bot.models import (
     FundamentalsAnnual,
     FundamentalsQuarter,
     OwnershipSnapshot,
+    PressRelease,
     SharesOutstandingSnapshot,
     SymbolMetadata,
 )
@@ -88,7 +89,7 @@ class FakeFmp(FmpClient):
     def institutional_ownership(self, symbol: str) -> List[OwnershipSnapshot]:
         return []
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
+    def press_releases(self, symbol: str, limit: int, as_of: date) -> List[PressRelease]:
         return []
 
     def stock_screener(

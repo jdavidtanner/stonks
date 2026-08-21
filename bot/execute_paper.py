@@ -49,7 +49,7 @@ class PaperFmp(Protocol):
     def institutional_ownership(self, symbol: str):
         raise NotImplementedError
 
-    def press_releases(self, symbol: str, limit: int):
+    def press_releases(self, symbol: str, limit: int, as_of: date):
         raise NotImplementedError
 
     def stock_screener(

@@ -11,7 +11,7 @@ from bot.data_providers import AlpacaClient, FmpClient, LlmClient
 from bot.fundamentals import evaluate_fundamentals
 from bot.logger import BotLog
 from bot.market import evaluate_market_gate
-from bot.models import Bar, FundamentalsAnnual, FundamentalsQuarter, OwnershipSnapshot, SharesOutstandingSnapshot, SymbolMetadata, Position
+from bot.models import Bar, FundamentalsAnnual, FundamentalsQuarter, OwnershipSnapshot, PressRelease, SharesOutstandingSnapshot, SymbolMetadata, Position
 from bot.runner import Bot
 from bot.sell_rules import HOLD_DISABLE_DAYS, POWER_PLAY_DAYS, evaluate_sell_signals
 from bot.supply_demand import evaluate_supply_demand
@@ -81,7 +81,7 @@ class FakeFmp(FmpClient):
     def institutional_ownership(self, symbol: str) -> List[OwnershipSnapshot]:
         return self.owners.get(symbol, [])
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
+    def press_releases(self, symbol: str, limit: int, as_of: date) -> List[PressRelease]:
         return self.releases.get(symbol, [])[:limit]
 
     def stock_screener(
@@ -486,7 +486,7 @@ def test_scan_market_requires_pattern_and_pivot_range() -> None:
                 OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     scan = scan_market(["AAA"], as_of, alpaca, fmp, FakeLlm(result=True), config, BotLog())
     assert scan.candidates
@@ -547,7 +547,7 @@ def test_scan_market_fails_closed_when_pattern_gate_rejects() -> None:
                 OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     scan = scan_market(["AAA"], as_of, alpaca, fmp, FakeLlm(result=True), config, BotLog())
     assert not scan.candidates
@@ -591,7 +591,7 @@ def test_build_orders_respects_position_limit_and_stop_loss() -> None:
                 OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     bot = Bot(alpaca=alpaca, fmp=fmp, llm=FakeLlm(result=True), config=config)
     orders, _log = bot.run_daily(["AAA"], date(2024, 6, 1))
@@ -642,7 +642,7 @@ def test_n_module_rejects_without_new() -> None:
                 OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     log = BotLog()
     scan = scan_market(["AAA"], as_of, alpaca, fmp, FakeLlm(result=False), config, log)
@@ -691,7 +691,7 @@ def test_n_module_allows_with_new() -> None:
                 OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     scan = scan_market(["AAA"], as_of, alpaca, fmp, FakeLlm(result=True), config, BotLog())
     assert scan.candidates

@@ -61,6 +61,12 @@ class SharesOutstandingSnapshot:
 
 
 @dataclass(frozen=True)
+class PressRelease:
+    published_date: Optional[date]
+    text: str
+
+
+@dataclass(frozen=True)
 class Candidate:
     symbol: str
     pivot: float

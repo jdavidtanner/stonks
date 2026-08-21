@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 
 from bot.config import BotConfig
 from bot.data_providers import AlpacaClient, FmpClient, LlmClient
-from bot.models import Bar, FundamentalsAnnual, FundamentalsQuarter, OwnershipSnapshot, SharesOutstandingSnapshot, SymbolMetadata
+from bot.models import Bar, FundamentalsAnnual, FundamentalsQuarter, OwnershipSnapshot, PressRelease, SharesOutstandingSnapshot, SymbolMetadata
 from bot.walk_forward import WalkForwardRunner
 
 
@@ -56,7 +56,7 @@ class FakeFmpWalk(FmpClient):
     def institutional_ownership(self, symbol: str) -> List[OwnershipSnapshot]:
         return self.owners.get(symbol, [])
 
-    def press_releases(self, symbol: str, limit: int) -> List[str]:
+    def press_releases(self, symbol: str, limit: int, as_of: date) -> List[PressRelease]:
         return self.releases.get(symbol, [])[:limit]
 
     def stock_screener(
@@ -204,7 +204,7 @@ def test_walk_forward_stop_loss_triggers() -> None:
                 OwnershipSnapshot(report_date=date(2021, 12, 31), accepted_date=date(2022, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     runner = WalkForwardRunner()
     result = runner.run(
@@ -268,7 +268,7 @@ def test_walk_forward_no_lookahead_fill_next_day() -> None:
                 OwnershipSnapshot(report_date=date(2021, 12, 31), accepted_date=date(2022, 2, 1), institutional_owners=180),
             ]
         },
-        releases={"AAA": ["New product launched."]},
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     runner = WalkForwardRunner()
     result = runner.run(

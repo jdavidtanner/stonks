@@ -59,7 +59,8 @@ Uses eligible snapshots only (`accepted_date <= as_of`).
 - **Non-decline requirement (PR2):** latest institutional owners must be >= previous; otherwise reject.
 
 ### 2.7 N module (new catalyst)
-- Pulls up to 5 press releases from FMP.
+- Pulls up to 5 press releases from FMP, using eligible releases only (`published_date <= as_of`).
+- A release with no usable date fails closed and is skipped.
 - An OpenAI classifier returns JSON; non-JSON or missing `has_new` fails closed to `False`.
 - Any release classified as new sets `has_new=True`; otherwise reject.
 

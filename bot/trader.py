@@ -57,9 +57,10 @@ def scan_market(
     def cached_owners(symbol: str):
         return cache.get_or_set(("institutional_ownership", symbol), lambda: fmp.institutional_ownership(symbol))
 
-    def cached_press_releases(symbol: str, limit: int):
+    def cached_press_releases(symbol: str, limit: int, as_of: date):
         return cache.get_or_set(
-            ("press_releases", symbol, limit), lambda: fmp.press_releases(symbol, limit)
+            ("press_releases", symbol, limit, as_of),
+            lambda: fmp.press_releases(symbol, limit, as_of),
         )
 
     class CachedAlpaca(AlpacaClient):
@@ -88,8 +89,8 @@ def scan_market(
         def institutional_ownership(self, symbol: str):
             return cached_owners(symbol)
 
-        def press_releases(self, symbol: str, limit: int):
-            return cached_press_releases(symbol, limit)
+        def press_releases(self, symbol: str, limit: int, as_of: date):
+            return cached_press_releases(symbol, limit, as_of)
 
         def stock_screener(
             self,
@@ -156,7 +157,7 @@ def scan_market(
         supply = evaluate_supply_demand(result.symbol, end_date, cached_fmp, log)
         if supply is None:
             continue
-        n_result = evaluate_n_module(result.symbol, cached_fmp, llm, log)
+        n_result = evaluate_n_module(result.symbol, end_date, cached_fmp, llm, log)
         if not n_result.has_new:
             log.info(f"{result.symbol} rejected: N_MODULE_NO_NEW")
             continue
