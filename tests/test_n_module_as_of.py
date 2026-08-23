@@ -58,3 +58,23 @@ def test_release_on_or_before_as_of_is_used() -> None:
     llm = AlwaysNewLlm()
     assert evaluate_n_module("AAA", AS_OF, fmp, llm, BotLog()).has_new
     assert llm.seen == ["Same-day launch."]
+
+
+def test_undated_release_is_dropped(monkeypatch):
+    """A release with no parseable date can't be proven to predate as_of."""
+    from bot.providers.fmp_live import FmpLive
+
+    client = FmpLive.__new__(FmpLive)
+    client._cache = _PassthroughCache()
+    client._request = lambda path, params: [
+        {"title": "Dated, old", "text": "ok", "date": "2020-01-01"},
+        {"title": "Undated", "text": "suspect"},
+        {"title": "Dated, future", "text": "leak", "date": "2099-01-01"},
+    ]
+    out = client.press_releases("AAA", limit=5, as_of=date(2021, 1, 1))
+    assert [r.text for r in out] == ["Dated, old\nok"]
+
+
+class _PassthroughCache:
+    def get_or_set(self, key, fn):
+        return fn()

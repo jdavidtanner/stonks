@@ -13,6 +13,12 @@ from bot.models import Bar, Order, Position
 from bot.runner import Bot
 
 
+def _with_cost(price: float, side: str, cost_bps: float) -> float:
+    """Slip the fill against us by cost_bps. Buys pay up, sells receive less."""
+    adj = 1.0 + (cost_bps / 10_000.0) * (1 if side == "buy" else -1)
+    return price * adj
+
+
 @dataclass
 class SimulationFill:
     day: date
@@ -136,7 +142,13 @@ class WalkForwardRunner:
                 for pending in pending_orders:
                     order = pending.order
                     if order.side == "buy":
-                        fill_price = pending.signal_price
+                        # Fill at the NEXT session's open, never the signal-day close.
+                        # The close is only knowable once the session is over, so
+                        # filling there buys at a price the signal already saw.
+                        bars = alpaca.daily_bars(order.symbol, end_date=day, limit=1)
+                        if not bars:
+                            continue
+                        fill_price = _with_cost(bars[-1].open, "buy", config.cost_bps)
                         cost = fill_price * order.qty
                         if cost > cash:
                             continue
@@ -161,7 +173,7 @@ class WalkForwardRunner:
                         bars = alpaca.daily_bars(order.symbol, end_date=day, limit=1)
                         if not bars:
                             continue
-                        fill_price = bars[-1].open
+                        fill_price = _with_cost(bars[-1].open, "sell", config.cost_bps)
                         if order.symbol not in positions:
                             continue
                         position = positions[order.symbol]

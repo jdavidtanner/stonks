@@ -13,6 +13,10 @@ class BotConfig:
     min_price: float = 12.0
     min_history_days: int = 250
     min_avg_dollar_volume: float = 20_000_000.0
+    # One-way transaction cost in bps, applied to every fill in the walk-forward
+    # sim. 25bps/side = 50bps round trip, the value-weighted anomaly average in
+    # NBER w20721. Zero here is how a backtest lies about a high-turnover screen.
+    cost_bps: float = 25.0
     max_pivot_buy_pct: float = 0.05
     stop_loss_pct: float = 0.08
     rs_min_percentile: float = 80.0

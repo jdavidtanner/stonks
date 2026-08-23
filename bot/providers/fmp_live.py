@@ -192,7 +192,9 @@ class FmpLive(FmpClient):
                 if not combined:
                     continue
                 published = _parse_release_date(row.get("date"))
-                if published is not None and published > as_of:
+                # Fail CLOSED on the lookahead guard: an undated release cannot be
+                # proven to predate as_of, so it is dropped rather than trusted.
+                if published is None or published > as_of:
                     continue
                 results.append(PressRelease(published_date=published, text=combined))
             return results

@@ -160,7 +160,14 @@ def test_walk_forward_stop_loss_triggers() -> None:
     spy = _market_bars(start, 260)
     qqq = _market_bars(start, 260)
     aaa_series = _flat_base_series(start, 220, 30, 105.0, 95.0, 110.0)
-    drop_day = aaa_series[-1].day + timedelta(days=1)
+    # Entry day: the breakout signal fills at THIS open, near the breakout price.
+    # Without this bar the buy would fill at the gap-down open below, which is the
+    # lookahead the old fixture was silently relying on.
+    entry_day = aaa_series[-1].day + timedelta(days=1)
+    aaa_series.append(
+        Bar(day=entry_day, open=110.0, high=111.0, low=109.0, close=110.0, volume=1_000_000)
+    )
+    drop_day = entry_day + timedelta(days=1)
     aaa_series.append(
         Bar(
             day=drop_day,
@@ -207,9 +214,10 @@ def test_walk_forward_stop_loss_triggers() -> None:
         releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
     runner = WalkForwardRunner()
+    breakout_day = aaa_series[-3].day
     result = runner.run(
         ["AAA"],
-        aaa_series[-1].day,
+        breakout_day,
         drop_day + timedelta(days=1),
         alpaca,
         fmp,
