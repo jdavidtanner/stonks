@@ -6,6 +6,7 @@ from typing import List
 from bot.logger import BotLog
 from bot.models import PressRelease
 from bot.n_module import evaluate_n_module
+from bot.providers.fmp_live import FmpLive
 
 
 class FakeFmp:
@@ -58,3 +59,26 @@ def test_release_on_or_before_as_of_is_used() -> None:
     llm = AlwaysNewLlm()
     assert evaluate_n_module("AAA", AS_OF, fmp, llm, BotLog()).has_new
     assert llm.seen == ["Same-day launch."]
+
+
+class StubFmpLive(FmpLive):
+    """FmpLive with the HTTP call stubbed out, one list of rows per page."""
+
+    def __init__(self, pages: List[List[dict]]) -> None:
+        super().__init__(api_key="x", log=BotLog())
+        self.pages = pages
+        self.pages_requested: List[str] = []
+
+    def _request(self, path: str, params):  # type: ignore[override]
+        page = int(params["page"])
+        self.pages_requested.append(params["page"])
+        return self.pages[page] if page < len(self.pages) else []
+
+
+def test_provider_pages_back_past_releases_newer_than_as_of() -> None:
+    newer = [{"date": "2024-07-01 09:00:00", "title": f"Later {i}", "text": "."} for i in range(5)]
+    older = [{"date": "2024-05-01 09:00:00", "title": "Earlier", "text": "."}]
+    fmp = StubFmpLive([newer, older])
+    releases = fmp.press_releases("AAA", limit=5, as_of=AS_OF)
+    assert [r.published_date for r in releases] == [date(2024, 5, 1)]
+    assert fmp.pages_requested == ["0", "1", "2"]  # stops at the first empty page

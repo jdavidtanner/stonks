@@ -18,6 +18,9 @@ from bot.models import (
 )
 
 
+_MAX_PRESS_PAGES = 10
+
+
 @dataclass
 class FmpLive(FmpClient):
     api_key: str
@@ -181,20 +184,29 @@ class FmpLive(FmpClient):
 
     def press_releases(self, symbol: str, limit: int, as_of: date) -> List[PressRelease]:
         def fetch() -> List[PressRelease]:
-            rows = self._request(f"press-releases/{symbol}", {"limit": str(limit)})
             results: List[PressRelease] = []
-            for row in rows:
-                text = row.get("text") or row.get("content")
-                title = row.get("title")
-                if not text and not title:
-                    continue
-                combined = f"{title}\n{text}" if text and title else text or title
-                if not combined:
-                    continue
-                published = _parse_release_date(row.get("date"))
-                if published is not None and published > as_of:
-                    continue
-                results.append(PressRelease(published_date=published, text=combined))
+            # FMP returns newest first, so page back until enough releases predate as_of.
+            # ponytail: fixed page cap, raise it if deep history starts coming up short.
+            for page in range(_MAX_PRESS_PAGES):
+                rows = self._request(
+                    f"press-releases/{symbol}", {"limit": str(limit), "page": str(page)}
+                )
+                if not rows:
+                    break
+                for row in rows:
+                    text = row.get("text") or row.get("content")
+                    title = row.get("title")
+                    if not text and not title:
+                        continue
+                    combined = f"{title}\n{text}" if text and title else text or title
+                    if not combined:
+                        continue
+                    published = _parse_release_date(row.get("date"))
+                    if published is not None and published > as_of:
+                        continue
+                    results.append(PressRelease(published_date=published, text=combined))
+                    if len(results) >= limit:
+                        return results
             return results
 
         return self._cache.get_or_set(("press", symbol, limit, as_of), fetch)
