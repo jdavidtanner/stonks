@@ -11,6 +11,7 @@ from bot.execute_paper import execute_paper
 from bot.providers.alpaca_live import AlpacaLive
 from bot.providers.fmp_live import FmpLive
 from bot.providers.llm_openai import OpenAiNClassifier
+from bot.providers.llm_claude import ClaudeNClassifier
 from bot.runner import Bot
 from bot.state_store import PositionStateStore
 
@@ -37,6 +38,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run CAN SLIM bot daily scan.")
     parser.add_argument("--symbols", required=True, help="Path to newline-delimited symbols list.")
     parser.add_argument("--end-date", required=False, help="YYYY-MM-DD for scan date.")
+    parser.add_argument(
+        "--llm-provider",
+        choices=["openai", "claude"],
+        default="openai",
+        help="LLM provider for N-module classification (default: openai).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview orders without execution.")
     parser.add_argument("--execute", action="store_true", help="Submit orders to Alpaca.")
     parser.add_argument("--walk-forward", action="store_true", help="Run walk-forward simulation.")
@@ -53,8 +60,12 @@ def main() -> int:
         alpaca_secret = _require_env("ALPACA_SECRET_KEY")
         alpaca_base = _require_env("ALPACA_BASE_URL")
         fmp_key = _require_env("FMP_API_KEY")
-        openai_key = _require_env("OPENAI_API_KEY")
-        openai_model = _require_env("OPENAI_MODEL")
+        if args.llm_provider == "claude":
+            llm_key = _require_env("ANTHROPIC_API_KEY")
+            llm_model = _require_env("ANTHROPIC_MODEL")
+        else:
+            llm_key = _require_env("OPENAI_API_KEY")
+            llm_model = _require_env("OPENAI_MODEL")
     except RuntimeError as exc:
         print(str(exc))
         return 1
@@ -76,7 +87,10 @@ def main() -> int:
         fail_closed=args.execute_paper,
     )
     fmp = FmpLive(api_key=fmp_key, log=log, fail_closed=args.execute_paper)
-    llm = OpenAiNClassifier(api_key=openai_key, model=openai_model, log=log)
+    if args.llm_provider == "claude":
+        llm = ClaudeNClassifier(api_key=llm_key, model=llm_model, log=log)
+    else:
+        llm = OpenAiNClassifier(api_key=llm_key, model=llm_model, log=log)
     bot = Bot(alpaca=alpaca, fmp=fmp, llm=llm, config=BotConfig())
 
     if args.execute_paper:

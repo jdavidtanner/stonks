@@ -61,6 +61,11 @@ class LlmClient(Protocol):
         raise NotImplementedError
 
 
+class VideoLlmClient(LlmClient, Protocol):
+    def classify_video(self, video_data: bytes, media_type: str = "video/mp4") -> bool:
+        raise NotImplementedError
+
+
 @dataclass(frozen=True)
 class UniverseMember:
     symbol: str
