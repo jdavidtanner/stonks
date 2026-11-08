@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -284,7 +286,9 @@ def test_walk_forward_no_lookahead_fill_next_day() -> None:
     assert result.fills[0].day == next_day
 
 
-def _cost_fixture() -> Tuple[FakeAlpacaWalk, FakeFmpWalk, date, date]:
+def _cost_fixture(
+    tail: Optional[List[Bar]] = None,
+) -> Tuple[FakeAlpacaWalk, FakeFmpWalk, date, date]:
     start = date(2023, 1, 1)
     spy = _market_bars(start, 260)
     aaa_series = _flat_base_series(start, 220, 30, 105.0, 95.0, 110.0)
@@ -292,6 +296,10 @@ def _cost_fixture() -> Tuple[FakeAlpacaWalk, FakeFmpWalk, date, date]:
     aaa_series.append(
         Bar(day=next_day, open=107.0, high=108.0, low=106.0, close=107.0, volume=1_000_000)
     )
+    start_day = aaa_series[-2].day
+    if tail:
+        aaa_series.extend(tail)
+        next_day = tail[-1].day
     alpaca = FakeAlpacaWalk(
         bars_by_symbol={"AAA": aaa_series, "SPY": spy, "QQQ": _market_bars(start, 260)},
         metadata_by_symbol={"AAA": SymbolMetadata(symbol="AAA", is_us_common_stock=True)},
@@ -327,14 +335,30 @@ def _cost_fixture() -> Tuple[FakeAlpacaWalk, FakeFmpWalk, date, date]:
         },
         releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
     )
-    return alpaca, fmp, aaa_series[-2].day, next_day
+    return alpaca, fmp, start_day, next_day
 
 
-def _run_with(config: BotConfig):
-    alpaca, fmp, start, end = _cost_fixture()
+def _run_with(config: BotConfig, tail: Optional[List[Bar]] = None, output_dir=None):
+    alpaca, fmp, start, end = _cost_fixture(tail)
     return WalkForwardRunner().run(
-        ["AAA"], start, end, alpaca, fmp, FakeLlmWalk(), config
+        ["AAA"], start, end, alpaca, fmp, FakeLlmWalk(), config, output_dir=output_dir
     )
+
+
+def _drop_tail(after: date) -> List[Bar]:
+    """A hard drop that trips the 8% stop, then a day for the sell to fill on."""
+    drop_day = after + timedelta(days=1)
+    return [
+        Bar(day=drop_day, open=90.0, high=92.0, low=88.0, close=90.0, volume=1_000_000),
+        Bar(
+            day=drop_day + timedelta(days=1),
+            open=89.0,
+            high=91.0,
+            low=87.0,
+            close=89.0,
+            volume=1_000_000,
+        ),
+    ]
 
 
 def test_attribution_identity_and_benchmark() -> None:
@@ -364,3 +388,62 @@ def test_costs_reduce_net_return() -> None:
     assert free.attribution.commission == 0.0
     assert free.attribution.slippage == 0.0
     assert costed.attribution.net_return < free.attribution.net_return
+
+
+def test_sell_side_charges_slippage_and_commission() -> None:
+    result = _run_with(
+        BotConfig(commission_per_trade=1.0, slippage_pct=0.01),
+        tail=_drop_tail(date(2023, 9, 9)),
+    )
+    sells = [fill for fill in result.fills if fill.side == "sell"]
+    buys = [fill for fill in result.fills if fill.side == "buy"]
+    assert len(sells) == 1 and len(buys) == 1
+    sell = sells[0]
+    # sell fills 1% BELOW the reference open of 89.0, not above it
+    assert abs(sell.price - 89.0 * 0.99) < 1e-9
+    attribution = result.attribution
+    assert attribution.commission == 2.0  # one buy, one sell
+    expected_slippage = buys[0].qty * 110.0 * 0.01 + sell.qty * 89.0 * 0.01
+    assert abs(attribution.slippage - expected_slippage) < 1e-9
+    assert abs(
+        attribution.gross_pnl
+        - attribution.commission
+        - attribution.slippage
+        - attribution.net_pnl
+    ) < 1e-6
+    # the costs have to actually leave cash, not just get counted in the report
+    expected_equity = (
+        1000.0
+        - (buys[0].price * buys[0].qty + 1.0)
+        + (sell.price * sell.qty - 1.0)
+    )
+    assert abs(result.final_equity - expected_equity) < 1e-6
+
+
+def test_benchmark_return_matches_spy_closes() -> None:
+    alpaca, fmp, start, end = _cost_fixture()
+    result = WalkForwardRunner().run(
+        ["AAA"], start, end, alpaca, fmp, FakeLlmWalk(), BotConfig()
+    )
+    first = alpaca.daily_bars("SPY", end_date=start, limit=1)[-1].close
+    last = alpaca.daily_bars("SPY", end_date=end, limit=1)[-1].close
+    assert first != last, "flat SPY would make this assertion vacuous"
+    assert abs(result.attribution.benchmark_return - (last - first) / first) < 1e-12
+
+
+def test_attribution_csv_is_written(tmp_path) -> None:
+    result = _run_with(
+        BotConfig(commission_per_trade=1.0, slippage_pct=0.01),
+        tail=_drop_tail(date(2023, 9, 9)),
+        output_dir=tmp_path,
+    )
+    path = tmp_path / "attribution.csv"
+    assert path.exists(), "_write_reports swallows exceptions, so check the file itself"
+    rows = dict(csv.reader(path.read_text(encoding="utf-8").splitlines())  # type: ignore[arg-type]
+                )
+    assert rows["component"] == "value"
+    # costs are written as negatives, they came out of the return
+    assert float(rows["commission"]) == -result.attribution.commission
+    assert abs(float(rows["slippage"]) + result.attribution.slippage) < 1e-4  # file is 4dp
+    assert abs(float(rows["net_pnl"]) - result.attribution.net_pnl) < 0.01
+    assert abs(float(rows["excess_return"]) - result.attribution.excess_return) < 1e-4
