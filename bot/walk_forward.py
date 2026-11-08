@@ -24,6 +24,20 @@ class SimulationFill:
 
 
 @dataclass
+class CostAttribution:
+    """Carver-style decomposition: where the return actually came from and went."""
+
+    starting_equity: float
+    gross_pnl: float
+    commission: float
+    slippage: float
+    net_pnl: float
+    net_return: float
+    benchmark_return: Optional[float]
+    excess_return: Optional[float]
+
+
+@dataclass
 class SimulationResult:
     final_equity: float
     max_drawdown: float
@@ -33,6 +47,7 @@ class SimulationResult:
     equity_curve: List[Tuple[date, float]] = field(default_factory=list)
     orders_by_day: Dict[date, List[Order]] = field(default_factory=dict)
     fills: List[SimulationFill] = field(default_factory=list)
+    attribution: Optional[CostAttribution] = None
 
 
 @dataclass
@@ -87,6 +102,8 @@ class WalkForwardRunner:
         buy_count = 0
         sell_count = 0
         wins = 0
+        commission_paid = 0.0
+        slippage_paid = 0.0
 
         all_symbols = list(dict.fromkeys(symbols + ["SPY", "QQQ"]))
 
@@ -136,11 +153,14 @@ class WalkForwardRunner:
                 for pending in pending_orders:
                     order = pending.order
                     if order.side == "buy":
-                        fill_price = pending.signal_price
-                        cost = fill_price * order.qty
+                        fill_price = pending.signal_price * (1 + config.slippage_pct)
+                        slippage = (fill_price - pending.signal_price) * order.qty
+                        cost = fill_price * order.qty + config.commission_per_trade
                         if cost > cash:
                             continue
                         cash -= cost
+                        commission_paid += config.commission_per_trade
+                        slippage_paid += slippage
                         if order.symbol in positions:
                             existing = positions[order.symbol]
                             positions[order.symbol] = Position(
@@ -161,11 +181,14 @@ class WalkForwardRunner:
                         bars = alpaca.daily_bars(order.symbol, end_date=day, limit=1)
                         if not bars:
                             continue
-                        fill_price = bars[-1].open
+                        reference_price = bars[-1].open
+                        fill_price = reference_price * (1 - config.slippage_pct)
                         if order.symbol not in positions:
                             continue
                         position = positions[order.symbol]
-                        cash += fill_price * position.qty
+                        slippage_paid += (reference_price - fill_price) * position.qty
+                        cash += fill_price * position.qty - config.commission_per_trade
+                        commission_paid += config.commission_per_trade
                         sell_count += 1
                         if fill_price > position.entry_price:
                             wins += 1
@@ -209,6 +232,24 @@ class WalkForwardRunner:
         win_rate = wins / sell_count if sell_count else 0.0
         final_equity = equity_curve[-1][1] if equity_curve else cash
 
+        starting_equity = config.account_equity
+        net_pnl = final_equity - starting_equity
+        net_return = net_pnl / starting_equity if starting_equity else 0.0
+        benchmark_return = self._benchmark_return(alpaca, start_date, end_date)
+        attribution = CostAttribution(
+            starting_equity=starting_equity,
+            # gross is what the positions made before execution costs came out
+            gross_pnl=net_pnl + commission_paid + slippage_paid,
+            commission=commission_paid,
+            slippage=slippage_paid,
+            net_pnl=net_pnl,
+            net_return=net_return,
+            benchmark_return=benchmark_return,
+            excess_return=(
+                net_return - benchmark_return if benchmark_return is not None else None
+            ),
+        )
+
         result = SimulationResult(
             final_equity=final_equity,
             max_drawdown=max_drawdown,
@@ -218,10 +259,22 @@ class WalkForwardRunner:
             equity_curve=equity_curve,
             orders_by_day=orders_by_day,
             fills=fills,
+            attribution=attribution,
         )
         if output_dir is not None:
             self._write_reports(output_dir, result)
         return result
+
+    def _benchmark_return(
+        self, alpaca: AlpacaClient, start_date: date, end_date: date
+    ) -> Optional[float]:
+        """SPY buy-and-hold over the same window. ponytail: SPY only, add a
+        config benchmark symbol if another one is ever wanted."""
+        first = alpaca.daily_bars("SPY", end_date=start_date, limit=1)
+        last = alpaca.daily_bars("SPY", end_date=end_date, limit=1)
+        if not first or not last or not first[-1].close:
+            return None
+        return (last[-1].close - first[-1].close) / first[-1].close
 
     def _write_reports(self, output_dir: Path, result: SimulationResult) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -235,6 +288,8 @@ class WalkForwardRunner:
                     writer.writerow({"date": day.isoformat(), "equity": f"{equity:.2f}"})
         except Exception:
             pass
+        if result.attribution is not None:
+            self._write_attribution(output_dir, result.attribution)
         try:
             with trades_path.open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.DictWriter(
@@ -252,5 +307,27 @@ class WalkForwardRunner:
                             "reason": fill.reason,
                         }
                     )
+        except Exception:
+            pass
+
+    def _write_attribution(self, output_dir: Path, attribution: CostAttribution) -> None:
+        rows = [
+            ("starting_equity", attribution.starting_equity),
+            ("gross_pnl", attribution.gross_pnl),
+            ("commission", -attribution.commission),
+            ("slippage", -attribution.slippage),
+            ("net_pnl", attribution.net_pnl),
+            ("net_return", attribution.net_return),
+            ("benchmark_return", attribution.benchmark_return),
+            ("excess_return", attribution.excess_return),
+        ]
+        try:
+            with (output_dir / "attribution.csv").open(
+                "w", encoding="utf-8", newline=""
+            ) as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["component", "value"])
+                for name, value in rows:
+                    writer.writerow([name, "" if value is None else f"{value:.4f}"])
         except Exception:
             pass

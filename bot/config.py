@@ -22,3 +22,7 @@ class BotConfig:
     ftd_min_gain: float = 0.01
     ftd_min_day: int = 4
     ftd_max_day: int = 10
+    # Walk-forward cost model, not strategy rules. Zero by default so no frozen
+    # v1.0 default changes; set them to model real execution.
+    commission_per_trade: float = 0.0
+    slippage_pct: float = 0.0

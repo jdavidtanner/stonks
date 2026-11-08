@@ -282,3 +282,85 @@ def test_walk_forward_no_lookahead_fill_next_day() -> None:
     )
     assert result.fills
     assert result.fills[0].day == next_day
+
+
+def _cost_fixture() -> Tuple[FakeAlpacaWalk, FakeFmpWalk, date, date]:
+    start = date(2023, 1, 1)
+    spy = _market_bars(start, 260)
+    aaa_series = _flat_base_series(start, 220, 30, 105.0, 95.0, 110.0)
+    next_day = aaa_series[-1].day + timedelta(days=1)
+    aaa_series.append(
+        Bar(day=next_day, open=107.0, high=108.0, low=106.0, close=107.0, volume=1_000_000)
+    )
+    alpaca = FakeAlpacaWalk(
+        bars_by_symbol={"AAA": aaa_series, "SPY": spy, "QQQ": _market_bars(start, 260)},
+        metadata_by_symbol={"AAA": SymbolMetadata(symbol="AAA", is_us_common_stock=True)},
+    )
+    fmp = FakeFmpWalk(
+        quarterly={
+            "AAA": [
+                FundamentalsQuarter(report_date=date(2023, 6, 30), accepted_date=date(2023, 7, 1), eps=1.5, revenue=120),
+                FundamentalsQuarter(report_date=date(2023, 3, 31), accepted_date=date(2023, 4, 1), eps=1.4, revenue=115),
+                FundamentalsQuarter(report_date=date(2022, 12, 31), accepted_date=date(2023, 1, 1), eps=1.3, revenue=110),
+                FundamentalsQuarter(report_date=date(2022, 6, 30), accepted_date=date(2022, 7, 1), eps=1.0, revenue=100),
+                FundamentalsQuarter(report_date=date(2022, 3, 31), accepted_date=date(2022, 4, 1), eps=1.0, revenue=95),
+                FundamentalsQuarter(report_date=date(2021, 12, 31), accepted_date=date(2022, 1, 1), eps=1.0, revenue=90),
+            ]
+        },
+        annual={
+            "AAA": [
+                FundamentalsAnnual(report_date=date(2021, 12, 31), accepted_date=date(2022, 2, 1), eps=1.0, revenue=400),
+                FundamentalsAnnual(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), eps=1.2, revenue=450),
+                FundamentalsAnnual(report_date=date(2023, 12, 31), accepted_date=date(2023, 2, 1), eps=1.4, revenue=480),
+            ]
+        },
+        shares={
+            "AAA": [
+                SharesOutstandingSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), shares_outstanding=50_000_000)
+            ]
+        },
+        owners={
+            "AAA": [
+                OwnershipSnapshot(report_date=date(2022, 12, 31), accepted_date=date(2023, 2, 1), institutional_owners=200),
+                OwnershipSnapshot(report_date=date(2021, 12, 31), accepted_date=date(2022, 2, 1), institutional_owners=180),
+            ]
+        },
+        releases={"AAA": [PressRelease(published_date=date(2020, 1, 1), text="New product launched.")]},
+    )
+    return alpaca, fmp, aaa_series[-2].day, next_day
+
+
+def _run_with(config: BotConfig):
+    alpaca, fmp, start, end = _cost_fixture()
+    return WalkForwardRunner().run(
+        ["AAA"], start, end, alpaca, fmp, FakeLlmWalk(), config
+    )
+
+
+def test_attribution_identity_and_benchmark() -> None:
+    result = _run_with(BotConfig(commission_per_trade=1.0, slippage_pct=0.01))
+    attribution = result.attribution
+    assert attribution is not None
+    assert result.fills, "need at least one fill for costs to show up"
+    # gross minus the costs paid has to land exactly on net
+    assert abs(
+        attribution.gross_pnl
+        - attribution.commission
+        - attribution.slippage
+        - attribution.net_pnl
+    ) < 1e-6
+    assert attribution.commission > 0
+    assert attribution.slippage > 0
+    assert attribution.benchmark_return is not None
+    assert abs(
+        attribution.excess_return
+        - (attribution.net_return - attribution.benchmark_return)
+    ) < 1e-9
+
+
+def test_costs_reduce_net_return() -> None:
+    free = _run_with(BotConfig())
+    costed = _run_with(BotConfig(commission_per_trade=1.0, slippage_pct=0.01))
+    assert free.attribution.commission == 0.0
+    assert free.attribution.slippage == 0.0
+    assert costed.attribution.net_return < free.attribution.net_return

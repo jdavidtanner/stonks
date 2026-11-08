@@ -104,6 +104,8 @@ Flat base detection is the only pattern used:
 
 These defaults are **frozen** for `v1.0-book-faithful`. Changing them requires bumping `CONFIG_VERSION` and updating this document.
 
+`commission_per_trade` and `slippage_pct` are walk-forward cost-model knobs, not strategy rules. Both default to `0.0`, so no frozen value changes; set them to model real execution. Walk-forward then reports the Carver-style decomposition to `attribution.csv`: gross P&L, commission, slippage, net P&L, net return, SPY buy-and-hold return, and excess return. A zero commission and slippage line means no costs were modeled, not that there were none.
+
 | Field | Default |
 | --- | --- |
 | account_equity | 1000.0 |
